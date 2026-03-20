@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CodeScan — AI Code Reviewer</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+  :root {
+    --bg: #0a0c0f;
+    --bg2: #0f1217;
+    --bg3: #151a22;
+    --border: rgba(255,255,255,0.07);
+    --border-strong: rgba(255,255,255,0.13);
+    --accent: #00e5a0;
+    --accent2: #0099ff;
+    --accent3: #ff5f6d;
+    --amber: #ffb347;
+    --text: #e8edf5;
+    --muted: #5a6478;
+    --muted2: #8896a8;
+    --font-display: 'Syne', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+ 
+  html { scroll-behavior: smooth; }
+ 
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+ 
+  /* ─── GRID BACKGROUND ─────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+ 
+  /* ─── LAYOUT ──────────────────────────────── */
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+ 
+  /* ─── HEADER ──────────────────────────────── */
+  header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 3rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+ 
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+ 
+  .logo-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--accent);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+ 
+  .logo-icon svg { width: 22px; height: 22px; }
+ 
+  .logo-text {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--text);
+  }
+ 
+  .logo-text span { color: var(--accent); }
+ 
+  .badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: rgba(0,229,160,0.1);
+    border: 1px solid rgba(0,229,160,0.2);
+    border-radius: 4px;
+    padding: 3px 8px;
+    text-transform: uppercase;
+  }
+ 
+  /* ─── INPUT CARD ──────────────────────────── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    transition: border-color 0.2s;
+  }
+ 
+  .card:focus-within { border-color: var(--border-strong); }
+ 
+  .card-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+ 
+  .card-label::before {
+    content: '';
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+ 
+  .path-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+  }
+ 
+  .path-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+ 
+  .path-input::placeholder { color: var(--muted); }
+  .path-input:focus {
+    border-color: rgba(0,229,160,0.4);
+    box-shadow: 0 0 0 3px rgba(0,229,160,0.06);
+  }
+ 
+  .run-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent);
+    color: #030f08;
+    border: none;
+    border-radius: 10px;
+    padding: 0 1.25rem;
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.15s;
+    white-space: nowrap;
+  }
+ 
+  .run-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+  .run-btn:active { transform: scale(0.98); }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+ 
+  .run-btn svg { width: 16px; height: 16px; }
+ 
+  /* ─── OPTIONS ROW ─────────────────────────── */
+  .options-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+ 
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--muted2);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+ 
+  .chip input { display: none; }
+ 
+  .chip:hover { border-color: var(--border-strong); color: var(--text); }
+ 
+  .chip.active {
+    border-color: rgba(0,229,160,0.4);
+    background: rgba(0,229,160,0.08);
+    color: var(--accent);
+  }
+ 
+  .chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.6;
+  }
+ 
+  /* ─── TERMINAL ────────────────────────────── */
+  .terminal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+    display: none;
+  }
+ 
+  .terminal.visible { display: block; }
+ 
+  .term-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+ 
+  .term-dots { display: flex; gap: 6px; }
+  .term-dots span {
+    width: 11px; height: 11px; border-radius: 50%;
+  }
+  .term-dots span:nth-child(1) { background: #ff5f57; }
+  .term-dots span:nth-child(2) { background: #febc2e; }
+  .term-dots span:nth-child(3) { background: #28c840; }
+ 
+  .term-title {
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+ 
+  .term-body {
+    padding: 1.25rem 1.5rem;
+    min-height: 200px;
+    max-height: 420px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+ 
+  .term-body::-webkit-scrollbar { width: 4px; }
+  .term-body::-webkit-scrollbar-track { background: transparent; }
+  .term-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+ 
+  .log-line { display: flex; gap: 10px; margin-bottom: 3px; }
+  .log-time { color: var(--muted); flex-shrink: 0; }
+  .log-text { color: var(--text); }
+  .log-text.accent { color: var(--accent); }
+  .log-text.amber { color: var(--amber); }
+  .log-text.error { color: var(--accent3); }
+  .log-text.muted { color: var(--muted2); }
+  .log-text.info { color: var(--accent2); }
+ 
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--accent);
+    vertical-align: middle;
+    animation: blink 1s step-end infinite;
+    margin-left: 4px;
+  }
+ 
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+ 
+  /* ─── SPINNER ─────────────────────────────── */
+  .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(0,229,160,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+ 
+  @keyframes spin { to { transform: rotate(360deg); } }
+ 
+  /* ─── REPORT CARDS ────────────────────────── */
+  .report { display: none; }
+  .report.visible { display: block; }
+ 
+  .report-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+ 
+  .report-title {
+    font-family: var(--font-display);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+ 
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 1.25rem;
+  }
+ 
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+  }
+ 
+  .stat-num {
+    font-family: var(--font-display);
+    font-size: 1.8rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+ 
+  .stat-num.green { color: var(--accent); }
+  .stat-num.blue { color: var(--accent2); }
+  .stat-num.red { color: var(--accent3); }
+  .stat-num.amber { color: var(--amber); }
+ 
+  .stat-label {
+    font-size: 11px;
+    color: var(--muted2);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+ 
+  /* ─── ISSUES LIST ─────────────────────────── */
+  .issues-section { margin-bottom: 1.25rem; }
+ 
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+ 
+  .section-head .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+ 
+  .dot-red { background: var(--accent3); }
+  .dot-amber { background: var(--amber); }
+  .dot-green { background: var(--accent); }
+ 
+  .issue-list { display: flex; flex-direction: column; gap: 6px; }
+ 
+  .issue-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    font-size: 13px;
+    transition: border-color 0.15s;
+  }
+ 
+  .issue-item:hover { border-color: var(--border-strong); }
+ 
+  .issue-file {
+    color: var(--accent2);
+    flex-shrink: 0;
+    font-weight: 500;
+  }
+ 
+  .issue-desc { color: var(--muted2); flex: 1; }
+ 
+  .issue-tag {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+ 
+  .tag-security { background: rgba(255,95,109,0.15); color: var(--accent3); }
+  .tag-bug { background: rgba(255,179,71,0.12); color: var(--amber); }
+  .tag-quality { background: rgba(0,229,160,0.1); color: var(--accent); }
+ 
+  /* ─── EMPTY / PLACEHOLDER ─────────────────── */
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem;
+    color: var(--muted);
+    text-align: center;
+    gap: 12px;
+  }
+ 
+  .placeholder svg { opacity: 0.25; }
+  .placeholder p { font-size: 13px; line-height: 1.6; max-width: 320px; }
+ 
+  /* ─── PROGRESS BAR ────────────────────────── */
+  .progress-wrap {
+    background: var(--bg3);
+    border-radius: 999px;
+    height: 3px;
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+    display: none;
+  }
+ 
+  .progress-wrap.visible { display: block; }
+ 
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 999px;
+    width: 0%;
+    transition: width 0.4s ease;
+  }
+ 
+  /* ─── FOOTER ──────────────────────────────── */
+  footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+ 
+  .footer-accent { color: var(--accent); }
+ 
+  /* ─── ANIMATIONS ──────────────────────────── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+ 
+  .fade-up { animation: fadeUp 0.35s ease both; }
+ 
+  @media (max-width: 600px) {
+    .path-row { flex-direction: column; }
+    .run-btn { width: 100%; justify-content: center; padding: 0.75rem; }
+  }
+</style>
+</head>
+<body>
+ 
+<div class="app">
+ 
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#030f08" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 18 22 12 16 6"/>
+          <polyline points="8 6 2 12 8 18"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-text">Code<span>Scan</span></div>
+      </div>
+    </div>
+    <div class="badge">Gemini 2.5 Flash</div>
+  </header>
+ 
+  <!-- INPUT -->
+  <div class="card fade-up">
+    <div class="card-label">Directory Path</div>
+    <div class="path-row">
+      <input
+        class="path-input"
+        type="text"
+        id="dirPath"
+        placeholder="e.g. /Users/you/projects/my-app"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="run-btn" id="runBtn" onclick="startReview()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Run Review
+      </button>
+    </div>
+  </div>
+ 
+  <!-- CHIPS -->
+  <div class="options-row fade-up">
+    <label class="chip active" id="chip-js">
+      <input type="checkbox" checked />
+      <span class="chip-dot"></span> JavaScript
+    </label>
+    <label class="chip active" id="chip-html">
+      <input type="checkbox" checked />
+      <span class="chip-dot"></span> HTML
+    </label>
+    <label class="chip active" id="chip-css">
+      <input type="checkbox" checked />
+      <span class="chip-dot"></span> CSS
+    </label>
+    <label class="chip active" id="chip-ts">
+      <input type="checkbox" checked />
+      <span class="chip-dot"></span> TypeScript
+    </label>
+    <label class="chip active" id="chip-fix">
+      <input type="checkbox" checked />
+      <span class="chip-dot"></span> Auto-Fix
+    </label>
+  </div>
+ 
+  <!-- PROGRESS -->
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+ 
+  <!-- TERMINAL -->
+  <div class="terminal" id="terminal">
+    <div class="term-bar">
+      <div class="term-dots">
+        <span></span><span></span><span></span>
+      </div>
+      <span class="term-title" id="termTitle">codescan — bash</span>
+    </div>
+    <div class="term-body" id="termBody">
+      <div class="placeholder">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="3" width="18" height="18" rx="3"/>
+          <path d="M8 12h8M8 8h5M8 16h6"/>
+        </svg>
+        <p>Terminal output will appear here once the review starts.</p>
+      </div>
+    </div>
+  </div>
+ 
+  <!-- REPORT -->
+  <div class="report" id="report">
+    <div class="report-header fade-up">
+      <div class="report-title">Review Report</div>
+      <span class="badge" id="reportTime">—</span>
+    </div>
+ 
+    <div class="stats-row fade-up" id="statsRow">
+      <div class="stat-card">
+        <div class="stat-num green" id="statFiles">0</div>
+        <div class="stat-label">Files Scanned</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num blue" id="statFixed">0</div>
+        <div class="stat-label">Files Fixed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num red" id="statSecurity">0</div>
+        <div class="stat-label">Security Issues</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num amber" id="statBugs">0</div>
+        <div class="stat-label">Bugs Fixed</div>
+      </div>
+    </div>
+ 
+    <!-- Issues -->
+    <div id="issuesSections"></div>
+  </div>
+ 
+  <footer>
+    <span>CodeScan &mdash; powered by <span class="footer-accent">Gemini 2.5 Flash</span></span>
+    <span id="footerStatus">Ready</span>
+  </footer>
+ 
+</div>
+ 
+<script>
+// ─── CHIP TOGGLE ───────────────────────────────────
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => chip.classList.toggle('active'));
+});
+ 
+// ─── STATE ─────────────────────────────────────────
+let logs = [];
+let running = false;
+let startTime = null;
+ 
+// ─── LOG HELPERS ────────────────────────────────────
+function now() {
+  const d = new Date();
+  return d.toTimeString().slice(0, 8);
+}
+ 
+function addLog(text, cls = '') {
+  logs.push({ text, cls, time: now() });
+  renderLogs();
+}
+ 
+function renderLogs() {
+  const body = document.getElementById('termBody');
+  body.innerHTML = logs.map(l =>
+    `<div class="log-line">
+      <span class="log-time">${l.time}</span>
+      <span class="log-text ${l.cls}">${l.text}</span>
+    </div>`
+  ).join('') + (running ? `<div class="log-line"><span class="log-time">${now()}</span><span class="log-text accent"><span class="cursor"></span></span></div>` : '');
+  body.scrollTop = body.scrollHeight;
+}
+ 
+// ─── PROGRESS ──────────────────────────────────────
+function setProgress(pct) {
+  document.getElementById('progressBar').style.width = pct + '%';
+}
+ 
+// ─── MOCK REVIEW SIMULATION ────────────────────────
+// In production, this replaces the fetch/stream call to your Node.js backend
+// which runs runAgent(directoryPath) and streams back events.
+ 
+async function startReview() {
+  const dir = document.getElementById('dirPath').value.trim();
+  if (!dir) {
+    document.getElementById('dirPath').focus();
+    document.getElementById('dirPath').style.borderColor = 'rgba(255,95,109,0.5)';
+    setTimeout(() => document.getElementById('dirPath').style.borderColor = '', 1200);
+    return;
+  }
+ 
+  running = true;
+  logs = [];
+  startTime = Date.now();
+ 
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('runBtn').innerHTML = `<span class="spinner"></span> Scanning…`;
+  document.getElementById('terminal').className = 'terminal visible';
+  document.getElementById('report').className = 'report';
+  document.getElementById('progressWrap').className = 'progress-wrap visible';
+  document.getElementById('termTitle').textContent = `codescan — ${dir}`;
+  document.getElementById('footerStatus').textContent = 'Running…';
+ 
+  setProgress(5);
+ 
+  // ── Simulate agent steps (replace with real SSE/fetch from your backend) ──
+  const steps = [
+    [300,  () => { addLog(`$ node agent.js "${dir}"`, 'muted'); }],
+    [600,  () => { addLog('→ Initializing Gemini 2.5 Flash…', 'info'); setProgress(10); }],
+    [1000, () => { addLog('→ Calling list_files…', 'accent'); setProgress(18); }],
+    [1400, () => { addLog('  Found 12 files to review', ''); setProgress(25); }],
+    [1700, () => { addLog('  .js ×6  .html ×3  .css ×2  .ts ×1', 'muted'); }],
+    [2100, () => { addLog('→ Reading app.js…', 'accent'); setProgress(32); }],
+    [2500, () => { addLog('  [BUG] Line 47 — possible null ref: user.profile.name', 'amber'); }],
+    [2700, () => { addLog('  [SECURITY] Line 89 — hardcoded API key detected', 'error'); }],
+    [3000, () => { addLog('→ Reading index.html…', 'accent'); setProgress(42); }],
+    [3300, () => { addLog('  [HTML] Missing alt on 3 <img> tags', 'amber'); }],
+    [3500, () => { addLog('  [HTML] No <meta name="description"> found', 'muted'); }],
+    [3800, () => { addLog('→ Reading styles.css…', 'accent'); setProgress(55); }],
+    [4100, () => { addLog('  [CSS] 4 duplicate rule sets found', 'amber'); }],
+    [4300, () => { addLog('  [CSS] Missing -webkit- prefix on transform', 'muted'); }],
+    [4600, () => { addLog('→ Reading auth.js…', 'accent'); setProgress(65); }],
+    [4900, () => { addLog('  [SECURITY] eval() usage on line 23', 'error'); }],
+    [5100, () => { addLog('  [QUALITY] 14 console.log statements to remove', 'muted'); }],
+    [5400, () => { addLog('→ Writing fixes…', 'info'); setProgress(78); }],
+    [5700, () => { addLog('  ✓ Fixed app.js', 'accent'); }],
+    [5900, () => { addLog('  ✓ Fixed index.html', 'accent'); }],
+    [6100, () => { addLog('  ✓ Fixed styles.css', 'accent'); }],
+    [6300, () => { addLog('  ✓ Fixed auth.js', 'accent'); setProgress(92); }],
+    [6700, () => { addLog('→ Generating report…', 'info'); }],
+    [7100, () => { finishReview(); }],
+  ];
+ 
+  for (const [delay, fn] of steps) {
+    await new Promise(r => setTimeout(r, delay));
+    fn();
+  }
+}
+ 
+function finishReview() {
+  running = false;
+  setProgress(100);
+ 
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  addLog(`✓ Review complete in ${elapsed}s`, 'accent');
+ 
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('runBtn').innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+      <polygon points="5 3 19 12 5 21 5 3"/>
+    </svg>
+    Run Review`;
+ 
+  document.getElementById('footerStatus').textContent = `Done in ${elapsed}s`;
+ 
+  // Stats
+  document.getElementById('statFiles').textContent = '12';
+  document.getElementById('statFixed').textContent = '4';
+  document.getElementById('statSecurity').textContent = '2';
+  document.getElementById('statBugs').textContent = '5';
+  document.getElementById('reportTime').textContent = elapsed + 's';
+ 
+  // Issues
+  const issues = {
+    security: [
+      { file: 'app.js:89',  desc: 'Hardcoded API key — moved to env variable' },
+      { file: 'auth.js:23', desc: 'Removed eval() — replaced with JSON.parse()' },
+    ],
+    bugs: [
+      { file: 'app.js:47',   desc: 'Added null check for user.profile before access' },
+      { file: 'index.html',  desc: 'Added alt attributes to 3 image elements' },
+      { file: 'styles.css',  desc: 'Added -webkit- prefix for transform property' },
+    ],
+    quality: [
+      { file: 'styles.css',   desc: 'Removed 4 duplicate rule sets' },
+      { file: 'auth.js',      desc: 'Removed 14 console.log statements' },
+      { file: 'app.js',       desc: 'Extracted magic numbers into named constants' },
+    ]
+  };
+ 
+  const sections = [
+    { key: 'security', label: 'Security Fixes',          dotClass: 'dot-red',   tagClass: 'tag-security', tagText: 'SEC' },
+    { key: 'bugs',     label: 'Bug Fixes',               dotClass: 'dot-amber', tagClass: 'tag-bug',      tagText: 'BUG' },
+    { key: 'quality',  label: 'Code Quality',            dotClass: 'dot-green', tagClass: 'tag-quality',  tagText: 'QA'  },
+  ];
+ 
+  let html = '';
+  for (const s of sections) {
+    html += `<div class="issues-section fade-up">
+      <div class="section-head"><span class="dot ${s.dotClass}"></span> ${s.label}</div>
+      <div class="issue-list">
+        ${issues[s.key].map(i => `
+        <div class="issue-item">
+          <span class="issue-file">${i.file}</span>
+          <span class="issue-desc">${i.desc}</span>
+          <span class="issue-tag ${s.tagClass}">${s.tagText}</span>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+ 
+  document.getElementById('issuesSections').innerHTML = html;
+  document.getElementById('report').className = 'report visible';
+ 
+  setTimeout(() => {
+    document.getElementById('progressWrap').className = 'progress-wrap';
+  }, 800);
+}
+ 
+// Enter key support
+document.getElementById('dirPath').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startReview();
+});
+</script>
+</body>
+</html>
