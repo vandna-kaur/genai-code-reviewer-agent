@@ -1,217 +1,237 @@
-import { GoogleGenAI,Type } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
 
-async function listFiles({directory}){
-    const files=[];
-    const extensions=['.js','.jsx','.ts','.tsx','.html','.css'];
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    function scan(dir){
-        const items=fs.readdirSync(dir);
+// ─── FILE TOOLS ────────────────────────────────────────────────────────────────
 
-        for(const item of items){
-            const fullPath=path.join(dir,item);
+async function listFiles({ directory }) {
+  const files = [];
+  const extensions = ['.js', '.jsx', '.ts', '.tsx', '.html', '.css'];
 
-            if(fullPath.includes('node_modules') || fullPath.includes('dist') || fullPath.includes('build'))continue;
+  function scan(dir) {
+    const items = fs.readdirSync(dir);
+    for (const item of items) {
+      const fullPath = path.join(dir, item);
+      if (
+        fullPath.includes('node_modules') ||
+        fullPath.includes('dist') ||
+        fullPath.includes('build')
+      ) continue;
 
-            const stat=fs.statSync(fullPath);
-
-            if(stat.isDirectory()){
-                scan(fullPath);
-            }
-            else if(stat.isFile()){
-                const ext=path.extname(item);
-                if(extensions.includes(ext)){
-                    files.push(fullPath);
-                }
-            }
-        }
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        scan(fullPath);
+      } else if (stat.isFile()) {
+        const ext = path.extname(item);
+        if (extensions.includes(ext)) files.push(fullPath);
+      }
     }
+  }
 
-    scan(directory);
-    return {files};
+  scan(directory);
+  return { files };
 }
 
-async function readFile({file_path}){
-    const content=fs.readFileSync(file_path,'utf-8');
-    return {content};
+async function readFile({ file_path }) {
+  const content = fs.readFileSync(file_path, 'utf-8');
+  return { content };
 }
 
-async function writeFile({file_path,content}){
-    fs.writeFileSync(file_path,content,'utf-8');
-    return {success:true};
+async function writeFile({ file_path, content }) {
+  fs.writeFileSync(file_path, content, 'utf-8');
+  return { success: true };
 }
 
-const tools={
-  'list_files':listFiles,
-    'read_file':readFile,
-    'write_file':writeFile
+const tools = {
+  list_files: listFiles,
+  read_file: readFile,
+  write_file: writeFile,
 };
+
+// ─── TOOL DECLARATIONS ─────────────────────────────────────────────────────────
 
 const listFilesTool = {
   name: 'list_files',
-  description: 'This makes list of all files present in a folder',
+  description: 'List all JS/TS/HTML/CSS files in a directory',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      directory: {
-        type: Type.STRING,
-        description: 'DIRECTORY path to scan',
-      },
+      directory: { type: Type.STRING, description: 'Directory path to scan' },
     },
     required: ['directory'],
   },
 };
 
-
 const readFileTool = {
   name: 'read_file',
-  description: 'This will read the content present in a file',
+  description: 'Read the content of a file',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      file_path: {
-        type: Type.STRING,
-        description: 'Directory path to scan',
-      },
+      file_path: { type: Type.STRING, description: 'Path to the file' },
     },
     required: ['file_path'],
   },
 };
 
-
 const writeFileTool = {
   name: 'write_file',
-  description: 'This will write in a file . eg this can modify a file and do changes which llm tell',
+  description: 'Write fixed/corrected content back to a file',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      file_path: {
-        type: Type.STRING,
-        description: 'Directory path to scan',
-      },
-      content:{
-        type: Type.STRING,
-        description: 'the fixed corrected content',
-      },
+      file_path: { type: Type.STRING, description: 'Path to the file' },
+      content: { type: Type.STRING, description: 'The corrected content' },
     },
-    required: ['file_path','content'],
+    required: ['file_path', 'content'],
   },
 };
 
+// ─── AGENT ─────────────────────────────────────────────────────────────────────
 
-export async function runAgent(directoryPath){
+/**
+ * runAgent — runs the Gemini code review agent.
+ *
+ * @param {string} directoryPath   - path to scan
+ * @param {function} emit          - optional callback(type, text) for streaming to UI
+ *                                   types: 'info' | 'accent' | 'amber' | 'error' | 'muted'
+ */
+export async function runAgent(directoryPath, emit = null) {
+  const log = (text, cls = '') => {
+    process.stdout.write(`[${cls || 'log'}] ${text}\n`);
+    if (emit) emit(cls || 'muted', text);
+  };
 
-    const History=[{
-        role: 'user', 
-        parts: [{ text: `review and fix all the js code in ${directoryPath}`}]
-    }];
+  const history = [
+    {
+      role: 'user',
+      parts: [{ text: `Review and fix all the JS/HTML/CSS/TS code in: ${directoryPath}` }],
+    },
+  ];
 
-    while (true) {
-      const result = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents:History,
-        config: { 
-            systemInstruction: `You are an expert JavaScript code reviewer and fixer.
+  log(`Starting review of: ${directoryPath}`, 'info');
 
-            **Your Job:**
-            1. Use list_files to get all HTML, CSS, JavaScript, and TypeScript files in the directory
-            2. Use read_file to read each file's content
-            3. Analyze for:
-   
-              **HTML Issues:**
-              - Missing doctype, meta tags, semantic HTML
-              - Broken links, missing alt attributes
-              - Accessibility issues (ARIA, roles)
-              - Inline styles that should be in CSS
-              
-              **CSS Issues:**
-              - Syntax errors, invalid properties
-              - Browser compatibility issues
-              - Inefficient selectors
-              - Missing vendor prefixes
-              - Unused or duplicate styles
-   
-              **JavaScript Issues:**
-              - BUGS: null/undefined errors, missing returns, type issues, async problems
-              - SECURITY: hardcoded secrets, eval(), XSS risks, injection vulnerabilities
-              - CODE QUALITY: console.logs, unused code, bad naming, complex logic
+  while (true) {
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: history,
+      config: {
+        systemInstruction: `You are an expert JavaScript code reviewer and fixer.
 
-            4. Use write_file to FIX the issues you found (write corrected code back)
-            5. After fixing all files, respond with a summary report in TEXT format
+**Your Job:**
+1. Use list_files to get all HTML, CSS, JavaScript, and TypeScript files in the directory
+2. Use read_file to read each file's content
+3. Analyze for:
 
-            **Summary Report Format:**
-            📊 CODE REVIEW COMPLETE
+  **HTML Issues:**
+  - Missing doctype, meta tags, semantic HTML
+  - Broken links, missing alt attributes
+  - Accessibility issues (ARIA, roles)
+  - Inline styles that should be in CSS
 
-            Total Files Analyzed: X
-            Files Fixed: Y
+  **CSS Issues:**
+  - Syntax errors, invalid properties
+  - Browser compatibility issues
+  - Inefficient selectors
+  - Missing vendor prefixes
+  - Unused or duplicate styles
 
-            🔴 SECURITY FIXES:
-            - file.js:line - Fixed hardcoded API key
-            - auth.js:line - Removed eval() usage
-            
-            🟠 BUG FIXES:
-            - app.js:line - Added null check for user object
-            - index.html:line - Added missing alt attribute
-            
-            🟡 CODE QUALITY IMPROVEMENTS:
-            - styles.css:line - Removed duplicate styles
-            - script.js:line - Removed console.log statements
+  **JavaScript Issues:**
+  - BUGS: null/undefined errors, missing returns, type issues, async problems
+  - SECURITY: hardcoded secrets, eval(), XSS risks, injection vulnerabilities
+  - CODE QUALITY: console.logs, unused code, bad naming, complex logic
 
-            Be practical and focus on real issues. Actually FIX the code, don't just report.`,
-            tools: [{
-                functionDeclarations: [listFilesTool,readFileTool ,writeFileTool]
-            }],
+4. Use write_file to FIX the issues you found (write corrected code back)
+5. After fixing all files, respond with a summary report in this EXACT JSON format:
 
-        },
-      });
-
-      if (result.functionCalls && result.functionCalls.length > 0) {
-        for(const functionCall of result.functionCalls){
-
-          const { name, args } = functionCall;
-
-          if (!tools[name]) {
-            throw new Error(`Unknown function call: ${name}`);
-          }
-
-          // Call the function and get the response.
-          const toolResponse =await tools[name](args);
-
-          const functionResponsePart = {
-            name: functionCall.name,
-            response: {
-              result: toolResponse,
-            },
-          };
-
-      // Send the function response back to the model.
-          History.push({
-            role: "model",
-            parts: [
-              {
-                functionCall: functionCall,
-              },
-            ],
-          });
-          History.push({
-            role: "user",
-            parts: [
-              {
-                functionResponse: functionResponsePart,
-              },
-            ],
-          });
-        }
-      } else {
-        // No more function calls, break the loop.\
-        break;
-      }
-    }
+{
+  "filesAnalyzed": <number>,
+  "filesFixed": <number>,
+  "security": [{ "file": "filename:line", "desc": "what was fixed" }],
+  "bugs": [{ "file": "filename:line", "desc": "what was fixed" }],
+  "quality": [{ "file": "filename:line", "desc": "what was fixed" }]
 }
 
-const directory=process.argv[2] ||'' ;
+Respond ONLY with the JSON object, no other text.`,
+        tools: [{
+          functionDeclarations: [listFilesTool, readFileTool, writeFileTool],
+        }],
+      },
+    });
 
-await runAgent(directory);
+    if (result.functionCalls && result.functionCalls.length > 0) {
+      for (const functionCall of result.functionCalls) {
+        const { name, args } = functionCall;
+
+        if (!tools[name]) throw new Error(`Unknown tool: ${name}`);
+
+        // Log meaningful messages for each tool call
+        if (name === 'list_files') {
+          log(`Scanning directory: ${args.directory}`, 'accent');
+        } else if (name === 'read_file') {
+          log(`Reading: ${path.basename(args.file_path)}`, 'accent');
+        } else if (name === 'write_file') {
+          log(`Fixed and saved: ${path.basename(args.file_path)}`, 'accent');
+        }
+
+        const toolResponse = await tools[name](args);
+
+        // Log results
+        if (name === 'list_files') {
+          const count = toolResponse.files.length;
+          log(`Found ${count} file${count !== 1 ? 's' : ''} to review`, '');
+          toolResponse.files.forEach(f => log(`  ${f}`, 'muted'));
+        }
+
+        history.push({
+          role: 'model',
+          parts: [{ functionCall }],
+        });
+        history.push({
+          role: 'user',
+          parts: [{ functionResponse: { name, response: { result: toolResponse } } }],
+        });
+      }
+    } else {
+      // Final text response — should be our JSON report
+      const rawText = result.candidates?.[0]?.content?.parts
+        ?.filter(p => p.text)
+        .map(p => p.text)
+        .join('') ?? '';
+
+      log('Review complete. Generating report…', 'info');
+
+      try {
+        const clean = rawText.replace(/```json|```/g, '').trim();
+        const report = JSON.parse(clean);
+        return report;
+      } catch {
+        // If model didn't return JSON, return a basic structure
+        return {
+          filesAnalyzed: 0,
+          filesFixed: 0,
+          security: [],
+          bugs: [],
+          quality: [],
+          raw: rawText,
+        };
+      }
+    }
+  }
+}
+
+// ─── CLI ENTRYPOINT ────────────────────────────────────────────────────────────
+
+if (process.argv[1] === new URL(import.meta.url).pathname) {
+  const directory = process.argv[2] || '';
+  if (!directory) {
+    console.error('Usage: node agent.js <directory>');
+    process.exit(1);
+  }
+
+  const report = await runAgent(directory);
+  console.log('\n📊 REPORT:\n', JSON.stringify(report, null, 2));
+}
